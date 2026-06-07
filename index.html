@@ -201,6 +201,7 @@
   #map:hover { border-color: rgba(91, 143, 199, 0.4); box-shadow: 0 0 15px rgba(91, 143, 199, 0.1); }
   #shopcv { width: 100%; height: 88px; display: block; image-rendering: pixelated; cursor: pointer;
     border-radius: 8px; margin-bottom: 12px; background: #0a0d14; border: 1px solid var(--line); }
+  .rival-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 11px; margin-bottom: 8px; background: rgba(255,255,255,0.012); }
   .avbtn { display: block; text-align: center; cursor: pointer; padding: 10px;
     background: var(--accent); color: #06210f; border: 1px solid var(--accent); border-radius: 8px;
     font-weight: bold; font-size: 13px; }
@@ -1487,30 +1488,47 @@ function runSeasons() {
 
 function openRivals() {
   if (G.over) return;
-  const rows = [...(G.rivals || [])].sort((a, b) => (rivalActive(b) ? 1 : 0) - (rivalActive(a) ? 1 : 0)).map((r) => {
+  const cards = [...(G.rivals || [])].sort((a, b) => (rivalActive(b) ? 1 : 0) - (rivalActive(a) ? 1 : 0)).map((r) => {
     const cfg = rivalCfg(r.id);
     const owned = G.territory.includes(cfg.city) && r.strength <= 0;
     const truce = r.truceUntil && G.day < r.truceUntil;
-    const status = owned ? '<span class="up">YOUR TURF</span>' : truce ? `<span class="muted">truce (${r.truceUntil - G.day}d)</span>` : '<span class="down">hostile</span>';
-    const bar = owned ? "—" : `${Math.round(r.strength)}/100`;
+    const status = owned ? '<span class="up">● your turf</span>' : truce ? `<span class="muted">● truce (${r.truceUntil - G.day}d)</span>` : '<span class="down">● hostile</span>';
+    const str = Math.round(r.strength);
     const tribute = Math.round(2000 + r.strength * 400);
     const buyout = Math.round(50000 + r.strength * 3000);
-    const actions = owned ? '<span class="pill">controlled</span>' : `
-      <button onclick="attackRival('${r.id}');openRivals()" ${15000 > G.cash ? "disabled" : ""}>⚔ Hit ($15k)</button>
-      <button onclick="payTribute('${r.id}');openRivals()" ${tribute > G.cash ? "disabled" : ""}>🤝 ${money(tribute)}</button>
-      <button onclick="buyoutRival('${r.id}');openRivals()" ${buyout > G.cash ? "disabled" : ""}>💰 ${money(buyout)}</button>`;
-    return `<tr>
-      <td>${cfg.name}<br><span class="muted" style="font-size:10px">turf: ${cityName(cfg.city)} · ${status}</span></td>
-      <td class="num">${bar}</td>
-      <td class="num" style="white-space:nowrap">${actions}</td>
-    </tr>`;
+    const aff = (c) => c > G.cash ? ' style="opacity:.6"' : "";
+    const head = `<div class="row" style="justify-content:space-between;align-items:baseline">
+        <b>${cfg.name}</b>${owned ? '<span class="pill">controlled</span>' : `<span class="muted" style="font-size:11px">${str}/100</span>`}</div>
+      <div class="muted" style="font-size:11px;margin:1px 0 6px">turf: ${cityName(cfg.city)} · ${status}</div>`;
+    if (owned) return `<div class="rival-card">${head}</div>`;
+    const bar = `<div style="height:6px;background:#0a0c10;border:1px solid var(--line);border-radius:4px;overflow:hidden;margin-bottom:8px"><div style="height:100%;width:${str}%;background:linear-gradient(90deg,#e0a83a,#d65555)"></div></div>`;
+    const btns = `<div class="row" style="gap:6px">
+        <button style="flex:1"${aff(15000)} onclick="rivalTry('hit','${r.id}',15000)">⚔ Hit<br><span class="muted" style="font-size:10px">${money(15000)}</span></button>
+        <button style="flex:1"${aff(tribute)} onclick="rivalTry('tribute','${r.id}',${tribute})">🤝 Truce<br><span class="muted" style="font-size:10px">${money(tribute)}</span></button>
+        <button style="flex:1"${aff(buyout)} onclick="rivalTry('buyout','${r.id}',${buyout})">💰 Buyout<br><span class="muted" style="font-size:10px">${money(buyout)}</span></button>
+      </div>`;
+    return `<div class="rival-card">${head}${bar}${btns}</div>`;
   }).join("");
   openModal(`
     <h3>⚔ Rival Cartels</h3>
-    <div class="mbody">Rivals flood their home turf (cheaper prices there) and hit your labs. <b>Hit</b> them to grind down their strength — drop it to 0 and you seize their city. <b>Tribute</b> buys a truce; <b>Buyout</b> takes over instantly. New crews rise over the year. You control <b>${G.territory.length}</b> territor${G.territory.length === 1 ? "y" : "ies"}.</div>
-    <table><tr><th>Cartel</th><th class="num">Strength</th><th></th></tr>${rows}</table>
-    <div class="row" style="justify-content:flex-end;margin-top:10px"><button onclick="closeModal()">Done</button></div>
+    <div class="mbody">Rivals flood their home turf and raid your labs. <b>Hit</b> grinds a cartel's strength to 0 to seize its city; <b>Truce</b> buys peace; <b>Buyout</b> takes over instantly. New crews rise over the year. You control <b>${G.territory.length}</b> territor${G.territory.length === 1 ? "y" : "ies"}.</div>
+    <div id="rival-msg" style="font-size:12px;min-height:16px;margin-bottom:10px;color:var(--accent2)">💵 Cash on hand: ${money(G.cash)}</div>
+    ${cards}
+    <div class="row" style="justify-content:flex-end;margin-top:4px"><button onclick="closeModal()">Done</button></div>
   `);
+}
+// rival action with in-modal affordability feedback (so buttons never look dead)
+function rivalTry(kind, id, cost) {
+  if (cost > G.cash) {
+    const el = document.getElementById("rival-msg");
+    if (el) { el.style.color = "var(--danger)"; el.textContent = `Not enough cash — that costs ${money(cost)}, you have ${money(G.cash)}. Build up your bankroll first.`; }
+    sfx("bad");
+    return;
+  }
+  if (kind === "hit") attackRival(id);
+  else if (kind === "tribute") payTribute(id);
+  else if (kind === "buyout") buyoutRival(id);
+  if (modalWrap.classList.contains("show")) openRivals();
 }
 
 // ---- Operations hub ----
