@@ -2511,27 +2511,71 @@ function drawMap(ts) {
 let view = "street";
 const keys = new Set();
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-const WALK_TOP = 96, WALK_BOT = 224;
-const player = { x: 240, y: 200, dir: 1, animT: 0, moving: false };
-let streetCd = 0;
+const player = { x: 520, y: 380, dir: 1, animT: 0, moving: false };
+let streetCd = 0, itemTimer = 0;
+const CITY = { w: 1040, h: 760 };  // the world is bigger than the viewport — camera follows you
+const cam = { x: 0, y: 0 };
 
+const BSZ = { w: 130, h: 110 };
+const _b = (x, y, label, action, door) => ({ x, y, w: BSZ.w, h: BSZ.h, label, action, door });
 const BUILDINGS = [
-  { x: 8,   y: 6,   w: 108, h: 82, label: "THE PLUG",   action: "market",  side: "top" },
-  { x: 124, y: 6,   w: 108, h: 82, label: "BANK",       action: "bank",    side: "top" },
-  { x: 240, y: 6,   w: 108, h: 82, label: "LOAN SHARK", action: "loan",    side: "top" },
-  { x: 356, y: 6,   w: 116, h: 82, label: "ARMS",       action: "arms",    side: "top" },
-  { x: 6,   y: 232, w: 112, h: 82, label: "BLACK MKT",  action: "black",   side: "bot" },
-  { x: 124, y: 232, w: 112, h: 82, label: "THE LAB",    action: "lab",     side: "bot" },
-  { x: 242, y: 232, w: 112, h: 82, label: "VAULT",      action: "vault",   side: "bot" },
-  { x: 360, y: 232, w: 112, h: 82, label: "AIRPORT",    action: "airport", side: "bot" },
+  _b(60, 40, "THE PLUG", "market", "S"),
+  _b(290, 40, "BANK", "bank", "S"),
+  _b(520, 40, "LOAN SHARK", "loan", "S"),
+  _b(750, 40, "ARMS", "arms", "S"),
+  _b(60, 600, "BLACK MKT", "black", "N"),
+  _b(290, 600, "THE LAB", "lab", "N"),
+  _b(520, 600, "VAULT", "vault", "N"),
+  _b(750, 600, "AIRPORT", "airport", "N"),
 ];
-BUILDINGS.forEach(b => { b.doorX = b.x + b.w / 2; b.doorY = b.side === "top" ? b.y + b.h : b.y; });
+BUILDINGS.forEach((b) => { b.doorX = b.x + b.w / 2; b.doorY = b.door === "S" ? b.y + b.h : b.y; });
+const FILLER = [ // non-enterable scenery for city density
+  { x: 905, y: 40, w: 100, h: 150 }, { x: 905, y: 300, w: 100, h: 110 },
+  { x: 905, y: 560, w: 100, h: 150 }, { x: 12, y: 300, w: 40, h: 110 },
+];
+function allSolids() { return BUILDINGS.concat(FILLER); }
+function hitsBuilding(x, y) {
+  const r = 9;
+  return allSolids().some((b) => x > b.x - r && x < b.x + b.w + r && y > b.y - r && y < b.y + b.h + r);
+}
 
-const peds = [
-  { x: 60,  y: 150, vx: 0.030, spr: SPR.dealer },
-  { x: 300, y: 205, vx: -0.025, spr: SPR.cop },
-  { x: 420, y: 120, vx: 0.022, spr: SPR.player },
+const ROADW = 46;
+const ROADS_H = [375];
+const ROADS_V = [235, 465, 700];
+const cars = [
+  { x: 0,   y: 366, vx: 0.11,  vy: 0,     col: "#b85b54" },
+  { x: 900, y: 384, vx: -0.09, vy: 0,     col: "#4f72a8" },
+  { x: 235, y: 760, vx: 0,     vy: -0.10, col: "#d9a531" },
+  { x: 465, y: 0,   vx: 0,     vy: 0.085, col: "#5a8a5a" },
+  { x: 700, y: 300, vx: 0,     vy: 0.10,  col: "#9a5aa0" },
 ];
+const peds = [
+  { x: 200, y: 350, vx: 0.030, spr: SPR.dealer },
+  { x: 600, y: 400, vx: -0.025, spr: SPR.cop },
+  { x: 420, y: 330, vx: 0.022, spr: SPR.dealer },
+  { x: 780, y: 410, vx: -0.020, spr: SPR.player },
+];
+let items = [];
+function maybeSpawnItem(dt) {
+  itemTimer += dt;
+  if (itemTimer > 6000 && items.length < 3 && Math.random() < 0.012) {
+    itemTimer = 0;
+    let x, y, t = 0;
+    do { x = clamp(player.x + (Math.random() * 320 - 160), 30, CITY.w - 30); y = clamp(player.y + (Math.random() * 240 - 120), 30, CITY.h - 30); t++; } while (hitsBuilding(x, y) && t < 10);
+    items.push({ x, y, kind: Math.random() < 0.6 ? "cash" : "drug" });
+  }
+}
+function maybePickup() {
+  for (let i = items.length - 1; i >= 0; i--) {
+    const it = items[i], dx = player.x - it.x, dy = player.y - it.y;
+    if (dx * dx + dy * dy < 17 * 17) { collectItem(it); items.splice(i, 1); }
+  }
+}
+function collectItem(it) {
+  if (it.kind === "cash") { const c = rint(200, 2500); G.cash += c; sfx("cash"); log(`You spot ${money(c)} on the ground.`, "good"); }
+  else { const d = pick(DRUGS), q = Math.min(rint(1, 5), capLeft()); if (q > 0) { G.held[d.id] = (G.held[d.id] || 0) + q; sfx("good"); log(`You grab ${q} ${d.name} dropped in the street.`, "good"); } }
+  if (typeof renderAll === "function") renderAll();
+}
 
 const CITY_TINT = { det:"#3a4a64", chi:"#2f4360", ny:"#36506e", la:"#5a4a6a",
                     mia:"#7a4a78", bog:"#3a6050", ams:"#4a5a40", bkk:"#704050" };
@@ -2539,7 +2583,7 @@ const CITY_TINT = { det:"#3a4a64", chi:"#2f4360", ny:"#36506e", la:"#5a4a6a",
 function modalOpen() { return modalWrap.classList.contains("show"); }
 
 function activeDoor() {
-  let best = null, bd = 30 * 30;
+  let best = null, bd = 36 * 36;
   BUILDINGS.forEach(b => { const dx = player.x - b.doorX, dy = player.y - b.doorY, d = dx*dx + dy*dy; if (d < bd) { bd = d; best = b; } });
   return best;
 }
@@ -2584,23 +2628,29 @@ function maybeStreetEncounter(dt) {
 }
 
 function updateStreet(dt) {
-  if (typeof G === "undefined" || !G || G.over || modalOpen()) { player.moving = false; }
-  else {
-    let dx = 0, dy = 0;
-    if (keys.has("arrowleft") || keys.has("a")) dx--;
-    if (keys.has("arrowright") || keys.has("d")) dx++;
-    if (keys.has("arrowup") || keys.has("w")) dy--;
-    if (keys.has("arrowdown") || keys.has("s")) dy++;
-    if (dx || dy) {
-      const n = Math.hypot(dx, dy) || 1, sp = 0.13 * dt;
-      player.x = clamp(player.x + dx / n * sp, 16, MW - 16);
-      player.y = clamp(player.y + dy / n * sp, WALK_TOP, WALK_BOT);
-      if (dx) player.dir = dx > 0 ? 1 : -1;
-      player.moving = true; player.animT += dt;
-      maybeStreetEncounter(dt);
-    } else player.moving = false;
-  }
-  peds.forEach(p => { p.x += p.vx * dt; if (p.x < 10 || p.x > MW - 20) p.vx *= -1; });
+  // ambient traffic + pedestrians keep moving even while a modal is open
+  cars.forEach((c) => {
+    c.x += c.vx * dt; c.y += c.vy * dt;
+    if (c.x < -50) c.x = CITY.w + 50; else if (c.x > CITY.w + 50) c.x = -50;
+    if (c.y < -50) c.y = CITY.h + 50; else if (c.y > CITY.h + 50) c.y = -50;
+  });
+  peds.forEach((p) => { p.x += p.vx * dt; if (p.x < 30 || p.x > CITY.w - 30) p.vx *= -1; });
+  if (typeof G === "undefined" || !G || G.over || modalOpen()) { player.moving = false; return; }
+  let dx = 0, dy = 0;
+  if (keys.has("arrowleft") || keys.has("a")) dx--;
+  if (keys.has("arrowright") || keys.has("d")) dx++;
+  if (keys.has("arrowup") || keys.has("w")) dy--;
+  if (keys.has("arrowdown") || keys.has("s")) dy++;
+  if (dx || dy) {
+    const n = Math.hypot(dx, dy) || 1, sp = 0.17 * dt;
+    const nx = clamp(player.x + dx / n * sp, 10, CITY.w - 10);
+    const ny = clamp(player.y + dy / n * sp, 10, CITY.h - 10);
+    if (!hitsBuilding(nx, player.y)) player.x = nx; // slide along walls
+    if (!hitsBuilding(player.x, ny)) player.y = ny;
+    if (dx) player.dir = dx > 0 ? 1 : -1;
+    player.moving = true; player.animT += dt;
+    maybeStreetEncounter(dt); maybePickup(); maybeSpawnItem(dt);
+  } else player.moving = false;
 }
 
 function drawPersonAt(ctx, spr, leftX, footY, scale, dir, bob) {
@@ -2613,43 +2663,87 @@ function drawPersonAt(ctx, spr, leftX, footY, scale, dir, bob) {
   ctx.restore();
 }
 
-function drawStreet(ts) {
-  MX.fillStyle = "#101218"; MX.fillRect(0, 0, MW, MH);
-  MX.fillStyle = "#2a2e36"; MX.fillRect(0, WALK_TOP - 8, MW, 8); MX.fillRect(0, WALK_BOT, MW, 8);
-  MX.fillStyle = "#15171c"; MX.fillRect(0, WALK_TOP, MW, WALK_BOT - WALK_TOP);
-  MX.fillStyle = "rgba(255,210,90,.45)";
-  for (let x = 10; x < MW; x += 34) MX.fillRect(x, (WALK_TOP + WALK_BOT) / 2 - 1, 18, 2);
-  if (typeof G === "undefined" || !G) return;
-  const col = CITY_TINT[G.city] || "#2a3a55";
-  const near = activeDoor();
-  BUILDINGS.forEach(b => {
-    const active = near === b;
-    MX.fillStyle = col; MX.fillRect(b.x, b.y, b.w, b.h);
-    MX.fillStyle = "rgba(0,0,0,.22)"; MX.fillRect(b.x, b.y, b.w, b.h);
-    MX.fillStyle = "#ffd24a";
-    for (let wy = b.y + 8; wy < b.y + b.h - 16; wy += 12)
-      for (let wx = b.x + 8; wx < b.x + b.w - 8; wx += 14)
-        if ((wx + wy) % 3) MX.fillRect(wx, wy, 6, 5);
-    const dw = 18, dh = 20, dx = b.doorX - dw / 2, dyy = b.side === "top" ? b.y + b.h - dh : b.y;
-    MX.fillStyle = "#0c0f14"; MX.fillRect(dx, dyy, dw, dh);
-    MX.strokeStyle = active ? "#41d67c" : "#3a4250"; MX.lineWidth = 2; MX.strokeRect(dx, dyy, dw, dh);
-    MX.fillStyle = active ? "#41d67c" : "#dfe5ee";
-    MX.font = "bold 10px monospace"; MX.textAlign = "center";
-    MX.fillText(b.label, b.doorX, b.side === "top" ? b.y + b.h - 26 : b.y + 18);
+function drawBuilding(sx, sy, w, h, tint, b, active) {
+  if (sx + w < 0 || sx > MW || sy + h < 0 || sy > MH) return;
+  MX.fillStyle = tint; MX.fillRect(sx, sy, w, h);
+  MX.fillStyle = "rgba(0,0,0,.28)"; MX.fillRect(sx, sy, w, h);
+  MX.fillStyle = "rgba(255,255,255,.06)"; MX.fillRect(sx, sy, w, 4);
+  MX.fillStyle = "#ffd24a";
+  for (let wy = sy + 12; wy < sy + h - 18; wy += 15)
+    for (let wx = sx + 12; wx < sx + w - 12; wx += 17)
+      if ((Math.round(wx) + Math.round(wy)) % 3) MX.fillRect(wx, wy, 7, 6);
+  if (b) {
+    const dw = 24, dh = 18, ddx = sx + w / 2 - dw / 2, ddy = b.door === "S" ? sy + h - dh : sy;
+    MX.fillStyle = "#0c0f14"; MX.fillRect(ddx, ddy, dw, dh);
+    MX.strokeStyle = active ? "#41d67c" : "#3a4250"; MX.lineWidth = 2; MX.strokeRect(ddx, ddy, dw, dh);
+    MX.fillStyle = active ? "#41d67c" : "#e6ecf5"; MX.font = "bold 11px monospace"; MX.textAlign = "center";
+    MX.fillText(b.label, sx + w / 2, b.door === "S" ? sy + h - 24 : sy + 30);
     MX.textAlign = "left";
+  }
+}
+function drawCar(sx, sy, c) {
+  const horiz = Math.abs(c.vx) >= Math.abs(c.vy);
+  const w = horiz ? 26 : 13, h = horiz ? 13 : 26;
+  MX.fillStyle = "rgba(0,0,0,.5)"; MX.fillRect(sx - w / 2, sy - h / 2 + 2, w, h);
+  MX.fillStyle = c.col; MX.fillRect(sx - w / 2, sy - h / 2, w, h);
+  MX.fillStyle = "rgba(190,225,255,.65)";
+  if (horiz) MX.fillRect(sx + (c.vx > 0 ? w / 2 - 7 : -w / 2 + 2), sy - h / 2 + 2, 5, h - 4);
+  else MX.fillRect(sx - w / 2 + 2, sy + (c.vy > 0 ? h / 2 - 7 : -h / 2 + 2), w - 4, 5);
+}
+function drawStreet(ts) {
+  if (typeof G === "undefined" || !G) { MX.fillStyle = "#0e1014"; MX.fillRect(0, 0, MW, MH); return; }
+  cam.x = clamp(player.x - MW / 2, 0, CITY.w - MW);
+  cam.y = clamp(player.y - MH / 2, 0, CITY.h - MH);
+  const ox = -cam.x, oy = -cam.y;
+  // ground + sidewalk seams
+  MX.fillStyle = "#1a1e25"; MX.fillRect(0, 0, MW, MH);
+  MX.strokeStyle = "rgba(255,255,255,.025)"; MX.lineWidth = 1;
+  for (let x = ox % 40; x < MW; x += 40) { MX.beginPath(); MX.moveTo(x, 0); MX.lineTo(x, MH); MX.stroke(); }
+  for (let y = oy % 40; y < MH; y += 40) { MX.beginPath(); MX.moveTo(0, y); MX.lineTo(MW, y); MX.stroke(); }
+  // roads + lane dashes
+  MX.fillStyle = "#0d0f13";
+  ROADS_H.forEach((y) => MX.fillRect(0, oy + y - ROADW / 2, MW, ROADW));
+  ROADS_V.forEach((x) => MX.fillRect(ox + x - ROADW / 2, 0, ROADW, MH));
+  MX.fillStyle = "rgba(255,210,90,.4)";
+  ROADS_H.forEach((y) => { for (let x = 0; x < CITY.w; x += 42) { const sx = ox + x; if (sx > -20 && sx < MW) MX.fillRect(sx, oy + y - 1, 20, 2); } });
+  ROADS_V.forEach((x) => { for (let yy = 0; yy < CITY.h; yy += 42) { const sy = oy + yy; if (sy > -20 && sy < MH) MX.fillRect(ox + x - 1, sy, 2, 20); } });
+  // cars
+  cars.forEach((c) => { const sx = ox + c.x, sy = oy + c.y; if (sx > -30 && sx < MW + 30 && sy > -30 && sy < MH + 30) drawCar(sx, sy, c); });
+  // buildings
+  const tint = CITY_TINT[G.city] || "#2a3a55";
+  FILLER.forEach((b) => drawBuilding(ox + b.x, oy + b.y, b.w, b.h, tint, null, false));
+  const near = activeDoor();
+  BUILDINGS.forEach((b) => drawBuilding(ox + b.x, oy + b.y, b.w, b.h, tint, b, near === b));
+  // ground pickups
+  items.forEach((it) => {
+    const sx = ox + it.x, sy = oy + it.y; if (sx < -10 || sx > MW + 10 || sy < -10 || sy > MH + 10) return;
+    const pulse = 1 + (Math.sin(ts / 200 + it.x) + 1) * 0.6;
+    MX.fillStyle = it.kind === "cash" ? "#e0a83a" : "#41d67c";
+    MX.beginPath(); MX.arc(sx, sy, 3 + pulse, 0, 7); MX.fill();
+    MX.fillStyle = "rgba(255,255,255,.85)"; MX.fillRect(sx - 1, sy - 1, 2, 2);
   });
-  peds.forEach(p => drawPersonAt(MX, p.spr, p.x, p.y, 1.6, p.vx > 0 ? 1 : -1, 0));
+  // pedestrians
+  peds.forEach((p) => { const sx = ox + p.x, sy = oy + p.y; if (sx > -30 && sx < MW + 30 && sy > -30 && sy < MH + 30) drawPersonAt(MX, p.spr, sx - 13, sy, 1.5, p.vx > 0 ? 1 : -1, 0); });
+  // player
   const bob = player.moving ? Math.sin(player.animT / 90) * 2 : 0;
-  drawPersonAt(MX, SPR.player, player.x - 16, player.y, 2, player.dir, bob);
+  drawPersonAt(MX, SPR.player, ox + player.x - 16, oy + player.y, 2, player.dir, bob);
+  // door prompt
   if (near && !modalOpen()) {
     const txt = "E ▸ " + near.label;
     MX.font = "bold 10px monospace";
     const tw = MX.measureText(txt).width + 12;
-    const bx = clamp(player.x - tw / 2, 2, MW - tw - 2), by = player.y - 46;
+    const bx = clamp(ox + player.x - tw / 2, 2, MW - tw - 2), by = oy + player.y - 46;
     MX.fillStyle = "rgba(8,11,16,.92)"; MX.fillRect(bx, by, tw, 16);
     MX.strokeStyle = "#41d67c"; MX.lineWidth = 1; MX.strokeRect(bx, by, tw, 16);
     MX.fillStyle = "#41d67c"; MX.textAlign = "center"; MX.fillText(txt, bx + tw / 2, by + 11); MX.textAlign = "left";
   }
+  // minimap (top-right)
+  const mmW = 92, mmH = mmW * CITY.h / CITY.w, mmX = MW - mmW - 6, mmY = 6;
+  MX.fillStyle = "rgba(8,11,16,.82)"; MX.fillRect(mmX - 2, mmY - 2, mmW + 4, mmH + 4);
+  MX.strokeStyle = "rgba(91,143,199,.45)"; MX.lineWidth = 1; MX.strokeRect(mmX - 2, mmY - 2, mmW + 4, mmH + 4);
+  const ssx = mmW / CITY.w, ssy = mmH / CITY.h;
+  BUILDINGS.forEach((b) => { MX.fillStyle = b === near ? "#41d67c" : "#8aa0c0"; MX.fillRect(mmX + b.x * ssx, mmY + b.y * ssy, Math.max(2, b.w * ssx), Math.max(2, b.h * ssy)); });
+  MX.fillStyle = "#ffcc44"; MX.fillRect(mmX + player.x * ssx - 1, mmY + player.y * ssy - 1, 3, 3);
 }
 
 function updateView() {
@@ -2689,15 +2783,16 @@ MAP.addEventListener("click", (e) => {
     });
     if (best && bestD < 30*30) window.travelTo(best);
   } else {
-    // street view: click a building to walk over and enter, else walk toward the point
-    const b = BUILDINGS.find(bb => cx >= bb.x && cx <= bb.x + bb.w && cy >= bb.y && cy <= bb.y + bb.h);
+    // street view: click maps to world coords (camera offset). Click a building to enter; else hop toward the spot.
+    const wx = cx + cam.x, wy = cy + cam.y;
+    const b = BUILDINGS.find(bb => wx >= bb.x && wx <= bb.x + bb.w && wy >= bb.y && wy <= bb.y + bb.h);
     if (b) {
-      player.x = clamp(b.doorX, 16, MW - 16);
-      player.y = clamp(b.side === "top" ? WALK_TOP + 6 : WALK_BOT - 6, WALK_TOP, WALK_BOT);
+      player.x = clamp(b.doorX, 10, CITY.w - 10);
+      player.y = clamp(b.door === "S" ? b.y + b.h + 12 : b.y - 12, 10, CITY.h - 10);
       enterBuilding(b);
-    } else {
-      player.x = clamp(cx, 16, MW - 16);
-      player.y = clamp(cy, WALK_TOP, WALK_BOT);
+    } else if (!hitsBuilding(wx, wy)) {
+      player.x = clamp(wx, 10, CITY.w - 10);
+      player.y = clamp(wy, 10, CITY.h - 10);
     }
   }
 });
@@ -3038,7 +3133,7 @@ const _fly = fly;
 fly = function (dest) {
   _fly(dest);
   view = "street";
-  player.x = 240; player.y = 205; streetCd = 4000;
+  player.x = CITY.w / 2; player.y = 380; streetCd = 4000; items = []; // arrive in the city center
   updateView();
 };
 
