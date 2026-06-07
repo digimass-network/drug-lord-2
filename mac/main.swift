@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window = NSWindow(contentRect: frame,
                           styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
-        window.title = "Drug Lord 2"
+        window.title = "Da Trap"
         window.minSize = NSSize(width: 760, height: 600)
         window.center()
         window.contentView?.addSubview(web)
