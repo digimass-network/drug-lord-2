@@ -199,8 +199,12 @@
     border-radius: 12px; border: 1px solid var(--line); cursor: pointer; background: #06101f;
     transition: border-color 0.3s ease, box-shadow 0.3s ease; }
   #map:hover { border-color: rgba(91, 143, 199, 0.4); box-shadow: 0 0 15px rgba(91, 143, 199, 0.1); }
-  #shopcv { width: 100%; height: 88px; display: block; image-rendering: pixelated;
+  #shopcv { width: 100%; height: 88px; display: block; image-rendering: pixelated; cursor: pointer;
     border-radius: 8px; margin-bottom: 12px; background: #0a0d14; border: 1px solid var(--line); }
+  .avbtn { display: block; text-align: center; cursor: pointer; padding: 10px;
+    background: var(--accent); color: #06210f; border: 1px solid var(--accent); border-radius: 8px;
+    font-weight: bold; font-size: 13px; }
+  .avbtn:hover { opacity: .9; }
   #fightcv { width: 100%; height: auto; aspect-ratio: 280 / 76; display: block; image-rendering: pixelated;
     border-radius: 8px; margin: 8px 0; background: #07090e; border: 1px solid var(--line); }
   #hist { width: 100%; height: 110px; display: block; background: #05070a; border-radius: 8px; border: 1px solid var(--line); }
@@ -2782,11 +2786,27 @@ function shopDraw() {
   c.fillStyle = "#0b0e13"; c.fillRect(0, H - 9, W, 9);
   c.fillStyle = "#262d37"; c.fillRect(0, H - 9, W, 2);
 
-  // dealer portrait — UNIFORM scale, with a gentle idle bob
-  const s = (H - 12) / SPR.plug.height;
-  const pw = SPR.plug.width * s;
+  // avatar — your uploaded picture, or the default pixel dealer — with a gentle idle bob
   const bob = Math.sin((typeof performance !== "undefined" ? performance.now() : 0) / 650) * 1.6;
-  blit(c, SPR.plug, 12, H - 9 - SPR.plug.height * s + 4 + bob, s);
+  const av = getAvatarImg();
+  let pw;
+  if (av) {
+    const sz = H - 16;
+    const ax = 12, ay = 7 + bob;
+    c.fillStyle = "#0b0e13"; c.fillRect(ax - 2, ay - 2, sz + 4, sz + 4);
+    c.imageSmoothingEnabled = true;
+    c.drawImage(av, ax, ay, sz, sz);
+    c.imageSmoothingEnabled = false;
+    c.strokeStyle = "rgba(91,143,199,0.35)"; c.lineWidth = 1; c.strokeRect(ax - 2, ay - 2, sz + 4, sz + 4);
+    pw = sz;
+  } else {
+    const s = (H - 12) / SPR.plug.height;
+    blit(c, SPR.plug, 12, H - 9 - SPR.plug.height * s + 4 + bob, s);
+    pw = SPR.plug.width * s;
+  }
+  // little "edit" hint so you know it's clickable
+  c.fillStyle = "rgba(0,0,0,0.45)"; c.fillRect(12, H - 23, 18, 14);
+  c.font = "10px sans-serif"; c.fillText("📷", 14, H - 12);
 
   // divider + text
   const dx = 22 + pw;
@@ -2803,6 +2823,79 @@ function shopDraw() {
   c.font = "italic 12px -apple-system, Helvetica, Arial, sans-serif";
   c.fillText('"what you need?"', tx, 66);
 }
+
+/* ---------- custom avatar (upload your own picture) ---------- */
+let _avImg = null, _avSrc = null;
+function getAvatarImg() {
+  if (typeof G === "undefined" || !G || !G.avatarData) { _avImg = null; _avSrc = null; return null; }
+  if (_avSrc !== G.avatarData) {
+    _avSrc = G.avatarData;
+    _avImg = new Image();
+    _avImg._ok = false;
+    _avImg.onload = () => { _avImg._ok = true; };
+    _avImg.src = G.avatarData;
+  }
+  return (_avImg && _avImg._ok) ? _avImg : null;
+}
+function drawAvatarPreview() {
+  const cv = document.getElementById("av-prev"); if (!cv) return;
+  const c = cv.getContext("2d"); c.imageSmoothingEnabled = false; c.clearRect(0, 0, cv.width, cv.height);
+  const av = getAvatarImg();
+  if (av) { c.imageSmoothingEnabled = true; c.drawImage(av, 0, 0, cv.width, cv.height); }
+  else { const s = (cv.height - 8) / SPR.plug.height; blit(c, SPR.plug, (cv.width - SPR.plug.width * s) / 2, 4, s); }
+}
+window.openAvatar = function () {
+  if (typeof G === "undefined" || !G) return;
+  openModal(`
+    <h3>Your Avatar</h3>
+    <div class="mbody">Upload a small picture to use as your dealer avatar — it shows in the shop and in fights, and syncs to your account.</div>
+    <div style="display:flex;gap:16px;align-items:center;margin:6px 0 12px">
+      <canvas id="av-prev" width="88" height="88" style="image-rendering:pixelated;border:2px solid var(--line);border-radius:12px;background:#10131a"></canvas>
+      <div style="flex:1">
+        <label for="av-file" class="avbtn">📷 Upload Image</label>
+        <input type="file" id="av-file" accept="image/*" style="display:none" />
+        <div style="height:8px"></div>
+        <button onclick="useDefaultAvatar()" style="width:100%">Use Default</button>
+      </div>
+    </div>
+    <div class="muted" style="font-size:11px">A square headshot looks best. Big images are shrunk &amp; cropped automatically.</div>
+    <div class="row" style="justify-content:flex-end;margin-top:12px"><button onclick="closeModal()">Done</button></div>
+  `);
+  const f = document.getElementById("av-file");
+  if (f) f.onchange = (e) => { if (e.target.files && e.target.files[0]) window.pickAvatarFile(e.target.files[0]); };
+  drawAvatarPreview();
+};
+window.pickAvatarFile = function (file) {
+  if (!file || !file.type || file.type.indexOf("image/") !== 0) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const img = new Image();
+    img.onload = () => {
+      const S = 128, cv = document.createElement("canvas"); cv.width = S; cv.height = S;
+      const c = cv.getContext("2d");
+      const scale = Math.max(S / img.width, S / img.height); // cover-crop to square
+      const w = img.width * scale, h = img.height * scale;
+      c.drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+      try { G.avatarData = cv.toDataURL("image/jpeg", 0.82); } catch (e) { return; }
+      _avImg = null; _avSrc = null;
+      if (typeof save === "function") save();
+      drawAvatarPreview();
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+};
+window.useDefaultAvatar = function () {
+  if (typeof G === "undefined" || !G) return;
+  G.avatarData = null; _avImg = null; _avSrc = null;
+  if (typeof save === "function") save();
+  drawAvatarPreview();
+};
+// click the shop banner to change your avatar
+(function () {
+  const sc = document.getElementById("shopcv");
+  if (sc) sc.addEventListener("click", () => window.openAvatar());
+})();
 
 /* ---------- Officer Hardass fight scene ---------- */
 let fightFlash = 0;
@@ -2822,7 +2915,15 @@ window.__fightDraw = function () {
   // bigger combat sprites, grounded near the bottom
   const fs = 3.6;
   const pw = SPR.player.width * fs, phh = SPR.player.height * fs;
-  blit(c, SPR.player, 14, cv.height - phh - 4, fs);
+  const fav = getAvatarImg();
+  if (fav) {
+    const sz = phh;
+    c.fillStyle = "#0b0e13"; c.fillRect(12, cv.height - sz - 4, sz + 2, sz + 2);
+    c.imageSmoothingEnabled = true; c.drawImage(fav, 13, cv.height - sz - 3, sz, sz); c.imageSmoothingEnabled = false;
+    c.strokeStyle = "rgba(91,143,199,0.4)"; c.lineWidth = 1; c.strokeRect(12, cv.height - sz - 4, sz + 2, sz + 2);
+  } else {
+    blit(c, SPR.player, 14, cv.height - phh - 4, fs);
+  }
   // a few cops to show the squad (capped), the rearmost first
   const ncop = Math.min(3, (G.encounter.cops || 1));
   for (let i = ncop - 1; i >= 0; i--) {
