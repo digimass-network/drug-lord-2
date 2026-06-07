@@ -2359,10 +2359,24 @@ const SPR = {
   plug:   makeSprite(PLUG_PORTRAIT, palPlug),
 };
 
+// ---- avatar gallery: recolored pixel busts you can pick from ----
+const avPal = (over) => Object.assign({}, palPlug, over);
+const AVATARS = [
+  { key: "green",   name: "Plug",    pal: palPlug },
+  { key: "crimson", name: "Crimson", pal: avPal({ g:"#c14444", G:"#8a2a2a", h:"#e36b6b", j:"#2a2f3a", J:"#1c2027", i:"#3a414e" }) },
+  { key: "royal",   name: "Royal",   pal: avPal({ g:"#3a6fd0", G:"#274a9a", h:"#6f9cf0", j:"#2b3550", J:"#1d2438", i:"#3c4a6e" }) },
+  { key: "gold",    name: "Gold",    pal: avPal({ g:"#d9a531", G:"#9e7720", h:"#f0c560", o:"#ffd24a", O:"#caa030", j:"#222831", J:"#171b22", i:"#333b46" }) },
+  { key: "noir",    name: "Noir",    pal: avPal({ g:"#23262d", G:"#15181d", h:"#3a3f48", s:"#a9774e", S:"#85593a", H:"#c08a60", j:"#1d2128", J:"#12151a", i:"#2c323b" }) },
+  { key: "violet",  name: "Violet",  pal: avPal({ g:"#7d4fd0", G:"#56359a", h:"#a07ff0", j:"#2c2740", J:"#1d1a2e", i:"#3e3a5a" }) },
+];
+const PRESET_SPR = {};
+AVATARS.forEach((a) => { PRESET_SPR[a.key] = a.key === "green" ? SPR.plug : makeSprite(PLUG_PORTRAIT, a.pal); });
+function getAvatarSprite() { return PRESET_SPR[(typeof G !== "undefined" && G && G.avatarPreset) || "green"] || SPR.plug; }
+
 /* ---------- world map ---------- */
 const MAPPOS = {
-  det:[0.86,0.61], chi:[0.79,0.43], ny:[0.48,0.36], la:[0.16,0.41],
-  mia:[0.69,0.48], bog:[0.37,0.60], ams:[0.55,0.33], bkk:[0.84,0.41],
+  la:[0.10,0.44], chi:[0.28,0.30], det:[0.41,0.20], ny:[0.52,0.46],
+  mia:[0.42,0.70], bog:[0.30,0.86], ams:[0.68,0.30], bkk:[0.90,0.56],
 };
 const MAP = document.getElementById("map");
 const MX = MAP.getContext("2d");
@@ -2800,9 +2814,10 @@ function shopDraw() {
     c.strokeStyle = "rgba(91,143,199,0.35)"; c.lineWidth = 1; c.strokeRect(ax - 2, ay - 2, sz + 4, sz + 4);
     pw = sz;
   } else {
-    const s = (H - 12) / SPR.plug.height;
-    blit(c, SPR.plug, 12, H - 9 - SPR.plug.height * s + 4 + bob, s);
-    pw = SPR.plug.width * s;
+    const spr = getAvatarSprite();
+    const s = (H - 12) / spr.height;
+    blit(c, spr, 12, H - 9 - spr.height * s + 4 + bob, s);
+    pw = spr.width * s;
   }
   // little "edit" hint so you know it's clickable
   c.fillStyle = "rgba(0,0,0,0.45)"; c.fillRect(12, H - 23, 18, 14);
@@ -2842,25 +2857,43 @@ function drawAvatarPreview() {
   const c = cv.getContext("2d"); c.imageSmoothingEnabled = false; c.clearRect(0, 0, cv.width, cv.height);
   const av = getAvatarImg();
   if (av) { c.imageSmoothingEnabled = true; c.drawImage(av, 0, 0, cv.width, cv.height); }
-  else { const s = (cv.height - 8) / SPR.plug.height; blit(c, SPR.plug, (cv.width - SPR.plug.width * s) / 2, 4, s); }
+  else { const sp = getAvatarSprite(); const s = (cv.height - 8) / sp.height; blit(c, sp, (cv.width - sp.width * s) / 2, 4, s); }
 }
+window.setAvatarPreset = function (key) {
+  if (typeof G === "undefined" || !G) return;
+  G.avatarPreset = key; G.avatarData = null; _avImg = null; _avSrc = null;
+  if (typeof save === "function") save();
+  window.openAvatar();
+};
 window.openAvatar = function () {
   if (typeof G === "undefined" || !G) return;
+  const cur = G.avatarData ? "custom" : (G.avatarPreset || "green");
+  const thumbs = AVATARS.map((a) => `
+    <div onclick="setAvatarPreset('${a.key}')" style="cursor:pointer;text-align:center">
+      <canvas id="avt-${a.key}" width="62" height="62" style="image-rendering:pixelated;border:2px solid ${cur === a.key ? "var(--accent)" : "var(--line)"};border-radius:10px;background:#10131a"></canvas>
+      <div class="muted" style="font-size:10px;margin-top:2px">${a.name}</div>
+    </div>`).join("");
   openModal(`
     <h3>Your Avatar</h3>
-    <div class="mbody">Upload a small picture to use as your dealer avatar — it shows in the shop and in fights, and syncs to your account.</div>
-    <div style="display:flex;gap:16px;align-items:center;margin:6px 0 12px">
-      <canvas id="av-prev" width="88" height="88" style="image-rendering:pixelated;border:2px solid var(--line);border-radius:12px;background:#10131a"></canvas>
+    <div class="mbody">Pick a character, or upload your own picture. It shows in the shop &amp; fights and syncs to your account.</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:6px 0 12px">${thumbs}</div>
+    <hr>
+    <div style="display:flex;gap:16px;align-items:center">
+      <canvas id="av-prev" width="80" height="80" style="image-rendering:pixelated;border:2px solid ${G.avatarData ? "var(--accent)" : "var(--line)"};border-radius:12px;background:#10131a"></canvas>
       <div style="flex:1">
-        <label for="av-file" class="avbtn">📷 Upload Image</label>
+        <label for="av-file" class="avbtn">📷 Upload Your Own</label>
         <input type="file" id="av-file" accept="image/*" style="display:none" />
-        <div style="height:8px"></div>
-        <button onclick="useDefaultAvatar()" style="width:100%">Use Default</button>
+        <div class="muted" style="font-size:10px;margin-top:6px">Square headshot is best — big images auto-shrink.</div>
       </div>
     </div>
-    <div class="muted" style="font-size:11px">A square headshot looks best. Big images are shrunk &amp; cropped automatically.</div>
     <div class="row" style="justify-content:flex-end;margin-top:12px"><button onclick="closeModal()">Done</button></div>
   `);
+  AVATARS.forEach((a) => {
+    const cv = document.getElementById("avt-" + a.key); if (!cv) return;
+    const c = cv.getContext("2d"); c.imageSmoothingEnabled = false;
+    const sp = PRESET_SPR[a.key]; const s = (cv.height - 6) / sp.height;
+    blit(c, sp, (cv.width - sp.width * s) / 2, 3, s);
+  });
   const f = document.getElementById("av-file");
   if (f) f.onchange = (e) => { if (e.target.files && e.target.files[0]) window.pickAvatarFile(e.target.files[0]); };
   drawAvatarPreview();
@@ -2879,7 +2912,7 @@ window.pickAvatarFile = function (file) {
       try { G.avatarData = cv.toDataURL("image/jpeg", 0.82); } catch (e) { return; }
       _avImg = null; _avSrc = null;
       if (typeof save === "function") save();
-      drawAvatarPreview();
+      if (document.getElementById("av-prev")) window.openAvatar(); // refresh gallery highlight
     };
     img.src = ev.target.result;
   };
