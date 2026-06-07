@@ -2,3 +2,6 @@
 .claude/
 .vercel/
 node_modules/
+# native build outputs
+DrugLord2.app/
+*.dmg

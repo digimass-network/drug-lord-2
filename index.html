@@ -220,7 +220,7 @@
   .float-cash { position: fixed; pointer-events: none; font-weight: bold; font-family: var(--font-mono); font-size: 16px;
     z-index: 60; text-shadow: 0 2px 4px #000; animation: floatUp 1.2s cubic-bezier(0.18, 0.89, 0.32, 1.28) forwards; }
   /* ---- login gate ---- */
-  #auth-gate { position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  #auth-gate { position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center;
     background: radial-gradient(circle at 50% 28%, #161b22, #07090d); }
   #auth-card { width: 350px; max-width: 90vw; background: var(--panel); border: 1px solid var(--line);
     border-radius: 14px; padding: 26px; box-shadow: 0 24px 70px rgba(0,0,0,.6); }
@@ -3181,11 +3181,13 @@ window.__boot();
 })();
 </script>
 
-<!-- ============ ACCOUNTS + CLOUD SAVES (Supabase) ============ -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- ============ ACCOUNTS + CLOUD SAVES — DISABLED for the local / Mac build ============ -->
+<!-- To re-enable cloud login later: load the supabase-js v2 UMD bundle before this block,
+     set CLOUD_ENABLED = true, and point SUPA_URL / SUPA_KEY at a live Supabase project. -->
 <script>
 (function () {
   "use strict";
+  const CLOUD_ENABLED = false; // local-only: no Supabase, saves to localStorage, fully offline
   const SUPA_URL = "https://gptvokbaadxeaajaqznj.supabase.co";
   const SUPA_KEY = "sb_publishable_smjLTvZRi6ohKjA7jR6Riw_LOjzon2g";
 
@@ -3196,9 +3198,9 @@ window.__boot();
   const showGate = () => { gate.style.display = "flex"; };
   const hideGate = () => { gate.style.display = "none"; };
 
-  // offline / SDK-blocked fallback: let them play locally
-  if (!window.supabase || !window.supabase.createClient) {
-    setSync("⚠ offline");
+  // local-only build (or Supabase SDK unavailable) → just play, saving to localStorage
+  if (!CLOUD_ENABLED || !window.supabase || !window.supabase.createClient) {
+    setSync("");
     hideGate();
     return;
   }
