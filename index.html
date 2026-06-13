@@ -238,6 +238,16 @@
   #sync-ind { font-size: 11px; color: var(--dim); align-self: center; }
   @keyframes floatUp { from { opacity: 1; transform: translate(-50%, 0); }
     to { opacity: 0; transform: translate(-50%, -45px); } }
+  /* ---- session picker ---- */
+  .slot-card { display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; margin-bottom: 8px; gap: 12px; }
+  .slot-card.slot-active { border-color: var(--accent); }
+  .slot-card.slot-empty { opacity: .7; }
+  .slot-info { flex: 1; min-width: 0; }
+  .slot-info b { display: block; font-size: 14px; margin-bottom: 2px; }
+  .slot-info span { font-size: 12px; color: var(--dim); }
+  .slot-card .row { gap: 6px; flex-shrink: 0; }
 </style>
 </head>
 <body>
@@ -540,7 +550,10 @@ const SEASONS = [
   { day: 355, msg: "📅 Year-end is near — cash out and make your final moves count.", drugs: null },
 ];
 
-const SAVE_KEY = "druglord2_save_v1";
+const SAVE_KEY_LEGACY = "druglord2_save_v1";
+const NUM_SLOTS = 3;
+const ACTIVE_SLOT_KEY = "druglord2_active_slot";
+const slotKey = (n) => `druglord2_save_v1_slot_${n}`;
 
 /* ============================ HELPERS ============================ */
 
@@ -557,6 +570,7 @@ const money = (n) => {
 /* ============================ STATE ============================ */
 
 let G = null;
+let activeSlot = 0;
 
 function newGame() {
   G = {
@@ -1685,7 +1699,7 @@ function endGame() {
     </table>
     <div class="row" style="margin-top:14px; justify-content:space-between;">
       <button onclick="openRecords()">Hall of Fame</button>
-      <button class="primary" onclick="newGame(); closeModal();">Play Again</button>
+      <button class="primary" onclick="closeModal(); openSessions();">Play Again</button>
     </div>
   `);
 }
@@ -1700,7 +1714,7 @@ function die(reason) {
     <div class="mbody">${reason}</div>
     <div class="row" style="justify-content:space-between;">
       <button onclick="openRecords()">Hall of Fame</button>
-      <button class="primary" onclick="newGame(); closeModal();">New Game</button>
+      <button class="primary" onclick="closeModal(); openSessions();">New Game</button>
     </div>
   `);
 }
@@ -2179,18 +2193,100 @@ function showDaySummary(snap) {
 function setDaySummary(on) { const m = getMeta(); m.daySummary = on; saveMeta(m); }
 
 /* ============================ SAVE / LOAD ============================ */
-function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(G)); } catch(e){} }
+function save() { try { localStorage.setItem(slotKey(activeSlot), JSON.stringify(G)); } catch(e){} }
 function load() {
   try {
-    const raw = localStorage.getItem(SAVE_KEY);
+    const raw = localStorage.getItem(slotKey(activeSlot));
     if (!raw) return false;
     G = JSON.parse(raw);
     return true;
   } catch(e) { return false; }
 }
 
+function slotInfo(n) {
+  try {
+    const raw = localStorage.getItem(slotKey(n));
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch(e) { return null; }
+}
+
+function loadSlot(n) {
+  try {
+    const raw = localStorage.getItem(slotKey(n));
+    if (!raw) return false;
+    activeSlot = n;
+    localStorage.setItem(ACTIVE_SLOT_KEY, String(n));
+    G = JSON.parse(raw);
+    if (!G.logs) G.logs = [];
+    migrate();
+    renderAll();
+    if (G.encounter) renderHardass();
+    else if (G.offer) renderOffer();
+    return true;
+  } catch(e) { return false; }
+}
+
+function startSlot(n) {
+  activeSlot = n;
+  localStorage.setItem(ACTIVE_SLOT_KEY, String(n));
+  newGame();
+}
+
+function deleteSlot(n) {
+  if (!confirm(`Delete Slot ${n + 1}? This cannot be undone.`)) return;
+  localStorage.removeItem(slotKey(n));
+  if (n === activeSlot) {
+    // switch to first non-empty slot or slot 0
+    let fallback = 0;
+    for (let i = 0; i < NUM_SLOTS; i++) {
+      if (i !== n && slotInfo(i)) { fallback = i; break; }
+    }
+    activeSlot = fallback;
+    localStorage.setItem(ACTIVE_SLOT_KEY, String(fallback));
+    if (!load()) newGame();
+    else { if (!G.logs) G.logs = []; migrate(); renderAll(); }
+  }
+  openSessions();
+}
+
+function openSessions() {
+  let rows = '';
+  for (let i = 0; i < NUM_SLOTS; i++) {
+    const info = slotInfo(i);
+    const isCurrent = i === activeSlot;
+    if (info) {
+      const nw = (info.cash || 0) + (info.bank || 0) - (info.debt || 0);
+      const cityObj = CITIES.find((c) => c.id === info.city);
+      const cityName = cityObj ? cityObj.name : (info.city || '?');
+      const label = isCurrent ? `Slot ${i + 1} <span style="color:var(--accent);font-size:11px">● active</span>` : `Slot ${i + 1}`;
+      rows += `
+        <div class="slot-card${isCurrent ? ' slot-active' : ''}">
+          <div class="slot-info">
+            <b>${label}</b>
+            <span>Day ${info.day || 1}/365 &middot; ${cityName} &middot; Net ${money(nw)}</span>
+          </div>
+          <div class="row">
+            ${isCurrent ? '' : `<button onclick="loadSlot(${i}); closeModal();">Load</button>`}
+            <button onclick="deleteSlot(${i})">Delete</button>
+          </div>
+        </div>`;
+    } else {
+      rows += `
+        <div class="slot-card slot-empty">
+          <div class="slot-info">
+            <b>Slot ${i + 1}</b>
+            <span>Empty</span>
+          </div>
+          <button class="primary" onclick="startSlot(${i}); closeModal();">New Game</button>
+        </div>`;
+    }
+  }
+  openModal(`<h3>Sessions</h3><div class="mbody" style="min-width:340px">${rows}</div><div class="row" style="justify-content:flex-end;margin-top:10px"><button onclick="closeModal()">Cancel</button></div>`);
+}
+
 /* ============================ WIRE UP ============================ */
-$("#btn-new").onclick = () => { if (confirm("Start a new game? Current progress is lost.")) { newGame(); } };
+$("#btn-new").onclick = () => openSessions();
 $("#btn-help").onclick = openHelp;
 $("#btn-bank").onclick = openBank;
 $("#btn-loan").onclick = openLoan;
@@ -2213,6 +2309,18 @@ window.__boot = function () {
   const m = getMeta();
   SND.on = m.sound;
   $("#btn-sound").textContent = m.sound ? "🔊" : "🔇";
+
+  // migrate legacy single-slot save into slot 0 (runs once)
+  const legacy = localStorage.getItem(SAVE_KEY_LEGACY);
+  if (legacy && !localStorage.getItem(slotKey(0))) {
+    localStorage.setItem(slotKey(0), legacy);
+    localStorage.removeItem(SAVE_KEY_LEGACY);
+  }
+
+  // restore active slot
+  const stored = localStorage.getItem(ACTIVE_SLOT_KEY);
+  if (stored !== null) activeSlot = parseInt(stored, 10) || 0;
+
   if (!load()) { newGame(); }
   else {
     if (!G.logs) G.logs = []; migrate(); renderAll();
